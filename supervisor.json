@@ -1,0 +1,25 @@
+{
+    "main":{
+        "logFile":"/var/log/mplane/supervisor.log",
+        "listenPort":2427,
+        "hostName":"Supervisor-1.TI.mplane.org",
+        "cli":true,
+		"keep_claimed_results" : true
+    },
+	"reasoner":{
+		"url":"127.0.0.1",
+		"port":"8081",
+		"path":"/network_status.json"
+	},
+    "gui":{
+    	"defaultUrl":"/gui/static/login.html"
+    	,"staticContentDir":"/www"	
+    },
+    "ssl":{
+        "key": "../ca/certs/Supervisor-TI-plaintext.key"
+        ,"cert": "../ca/certs/Supervisor-TI.crt"
+        ,"ca": [ "../ca/root-ca/root-ca.crt" ]
+        ,"hostName":"Supervisor-1.TI.mplane.org."
+        ,"requestCert" : true
+    }
+}
