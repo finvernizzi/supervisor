@@ -1,45 +1,35 @@
-mplane_components
+Supervisor
 =================
 
 [![mPlane](http://www.ict-mplane.eu/sites/default/files//public/mplane_final_256x_0.png)](http://www.ict-mplane.eu/)
 
 
-This package contains working examples of three [mPlane](http://www.ict-mplane.eu/) components: a Supervisor, a probe (ping and traceroute) and a simple client for the supervisor. 
-The implementation leverages mPlane nodej library and mPlane HTTPS transport library.
-A complete set of working SSL certificates is provided (with root-CA and signing-CA) in order to have a complete, full working environment. 
-For security reasons you SHOULD update these files with your own certificates.
+This package contains a working example of a Supervisor Component of the[mPlane](http://www.ict-mplane.eu/) architecture. This implementation includes also a GUI backend.
+The implementation leverages mPlane nodejs library and mPlane HTTPS transport library.
 
 #Installation
 Get all the code from github
 
-```git clone https://github.com/finvernizzi/mplane_components.git```
+```git clone https://github.com/finvernizzi/supervisor.git```
 
-This command will install all the components and needed stuff in the mplane_components folder.
+This command will install all the components and needed stuff in the supervisor folder.
 
 ```
-mPlaneTEST# ls ./mplane_components/
-README.md       node_modules    pinger.json     ssl_files.js
-client.js       package.json    registry.json   supervisor.js
-client.json     pinger.js       ssl             supervisor.json
+LICENSE         README.md       guiconf.json    registry.json   ssl_files.js    
+supervisor.js   supervisor.json www
 ```
 
 Now you need to install all the nodejs dependencies
 ```
-cd ./mplane_components
+cd ./supervicor
 npm install
 ```
-Done. You are ready to run the three components.
+Done. You are ready to run the supervisor.
 
-#Components
-After installation you will find three different components installed in your npm root directory:
-
-- supervisor
-- client
-- pinger
     
-##Supervisor
+#Configuration
     
-This is a working example of an mPlane supervisor. In order to change the configuration edit the supervisor.json file.
+In order to change the configuration edit the supervisor.json file.
 This an example of working config
 
 ```json
@@ -47,96 +37,46 @@ This an example of working config
     "main":{
         "logFile":"/var/log/mplane/supervisor.log",
         "listenPort":2427,
-        "hostName":"mplane.org"
+        "hostName":"Supervisor-1.TI.mplane.org",
+        "cli":true,
+		"keep_claimed_results" : true
+    },
+	"reasoner":{
+		"url":"127.0.0.1",
+		"port":"8081",
+		"path":"/network_status.json"
+	},
+    "gui":{
+    	"defaultUrl":"/gui/static/login.html"
+    	,"staticContentDir":"/www"	
     },
     "ssl":{
-        "key": "./ssl/official/Supervisor2/Supervisor-2-plaintext.key.pem"
-        ,"cert": "./ssl/official/Supervisor2/Supervisor-2.crt.pem"
-        ,"ca": [ "./ssl/official/root-ca.pem" , "./ssl/official/signing-ca.pem" ]
+        "key": "../ca/certs/Supervisor-TI-plaintext.key"
+        ,"cert": "../ca/certs/Supervisor-TI.crt"
+        ,"ca": [ "../ca/root-ca/root-ca.crt" ]
+        ,"hostName":"Supervisor-1.TI.mplane.org."
         ,"requestCert" : true
     }
 }
 ```
 
+
+The configuration is a plain JSON file conataining 4 main sections described below.
+###main
+This section contains general configuration such as the log file location, the listen IP and PORT (are the same for supervisor and GUI agent). The cli configuration enables an interactive simple cli while if disabled the supervisor after starting simply goes in backgrouond.
+If `keep_claimed_results` is true, the supervisor does not delete a result after it has been calimed with the correct receipt.
+
+###reasoner
+The configurations for interacting with the reasoner and in partcular for expose in the GUI backend the network status as known by the reasoner.
+
+###gui
+Some details about the gui backend.
+
+###SSL
+Where to find ssl certificates and if they should be honoured or not.
+
+#Run
 To start the supervisor simply digit
 ```
 node ./supervisor
-```
-
-##Client
-This is a simple remote cli to interact with the supervisor.
-Configuration file is client.json.
-```json
-{
-    "main":{
-        "logFile":"/var/log/mplane/client.log",
-        "version":"1.0",
-        "description": "mPlane supervisor client",
-        "prompt_separator":"#",
-        "minimum_columns_required":150,
-        "process_name": "mPlane supervisor CLIENT"
-    },
-    "supervisor":{
-        "listenPort":2427,
-        "hostName":"mplane.org"
-    },
-    "registry":{
-        "file":"./registry.json"
-    },
-    "ssl":{
-        "key": "./ssl/official/Client1/Client-1-plaintext.key.pem"
-        ,"cert": "./ssl/official/Client1/Client-1.crt.pem"
-        ,"ca": [ "./ssl/official/root-ca.pem" , "/usr/script/DATIProxy/ssl/official/signing-ca.pem" ]
-        ,"requestCert" : true
-    }
-}
-```
-
-To run the client
-```
-node ./client
-```
-
-##Probe
-This is a simple probe that exposes two capabilities
-    . pinger
-    . traceroute
-
-Configuration of this probe can be done in pinger.json
- 
-```json
-{
-    "main":{
-        "logFile":"/var/log/mplane/pinger.log",
-        "retryConnect":5000,
-        "pingerLabel": "pinger_TI_test",
-        "tracerouteLabel": "tracer_TI_test",
-        "ipAdresses" : ["192.168.0.1"],
-        "tracerouteExec": "/usr/sbin/traceroute",
-        "tracerouteOptions": "-q1 -n -w1 -m5"
-    },
-    "supervisor":{
-        "host": "mplane.org",
-        "port": 2427
-    },
-    "ssl":{
-        "key": "./ssl/official/Component1/Component-1-plaintext.key"
-        ,"cert": "./ssl/official/Component1/Component-1.crt.pem"
-        ,"ca": [ "./ssl/official/root-ca.pem" , "./ssl/official/signing-ca.pem" ]
-        ,"requestCert" : true
-    }
-}
-```
-
-The implementation is very simple, and tested only on FreeBSD 9.3, so some changes may be required in order to fully work on other platform.
-In particular two functions should be checked:
-- doAPing. This function executes the ping with parameters received in Specifications. The command is 
-       ```javascript exec("ping -S " + __MY_IP__ + "  -W "+ Wait  +" -c " + requests + " " + destination  + " | grep from"```
-    
-- doATrace.This function executes the traceroute with parameters received in Specifications. The command is 
-        ```javascript exec(configuration.main.tracerouteExec + " " + configuration.main.tracerouteOptions + " -s " + __MY_IP__ + " " + destination```
-         
-To run the probe:
-```
-node ./pinger
 ```
