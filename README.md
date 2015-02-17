@@ -21,7 +21,7 @@ supervisor.js   supervisor.json www
 
 Now you need to install all the nodejs dependencies
 ```
-cd ./supervicor
+cd ./supervisor
 npm install
 ```
 Done. You are ready to run the supervisor.
