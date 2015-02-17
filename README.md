@@ -4,7 +4,7 @@ Supervisor
 [![mPlane](http://www.ict-mplane.eu/sites/default/files//public/mplane_final_256x_0.png)](http://www.ict-mplane.eu/)
 
 
-This package contains a working example of a Supervisor Component of the[mPlane](http://www.ict-mplane.eu/) architecture. This implementation includes also a GUI backend.
+This package contains a working example of a Supervisor Component of the [mPlane](http://www.ict-mplane.eu/) architecture. This implementation includes also a GUI backend.
 The implementation leverages mPlane nodejs library and mPlane HTTPS transport library.
 
 #Installation
@@ -67,7 +67,7 @@ This section contains general configuration such as the log file location, the l
 If `keep_claimed_results` is true, the supervisor does not delete a result after it has been calimed with the correct receipt.
 
 ###reasoner
-The configurations for interacting with the reasoner and in partcular for expose in the GUI backend the network status as known by the reasoner.
+The configurations for interacting with the reasoner and in partcular for exposing in the GUI backend the network status as known by the reasoner.
 
 ###gui
 Some details about the gui backend.
