@@ -9,6 +9,9 @@
  *
  */
 
+// PM2 route analytics
+require('pmx').init();
+
 var mplane = require('mplane'),
     express = require('express'),
     morgan  = require('morgan'),
@@ -22,7 +25,8 @@ var mplane = require('mplane'),
     supervisor = require("mplane_http_transport"),
     fs = require('fs'),
     ssl_files = require("./ssl_files")
-	,session = require('express-session');
+	,session = require('express-session')
+	,cli = require("cli").enable('status');;
 
 
 var CONFIGFILE = "supervisor.json"; //TODO:This should be overwrittable by cli
@@ -62,7 +66,7 @@ process.title = "mPlane supervisor";
  *
  ************************/
 
-// List of capabilities registerd to this supervisor
+// List of capabilities registered to this supervisor
 // Each element is identified by its unique DN and each capability by its token
 var __registered_capabilities__ = {};
 // List of required measures, indexed by probe token
@@ -93,6 +97,7 @@ app.use(morgan("combined" ,{ "stream":fs.createWriteStream(configuration.main.lo
 var httpsServer = https.createServer(ssl_options, app);
 
 httpsServer.on("clientError" , function(exception, securePair){
+	cli.debug("--- clientError ---")
 //    console.log(exception);
 //    console.log("--- ------- ---");
     //console.log(securePair);
@@ -105,6 +110,7 @@ httpsServer.listen(configuration.main.listenPort);
 // Static contents
 app.use(supervisor.GUI_STATIC_PATH, express.static(__dirname + configuration.gui.staticContentDir));
 
+//FIXME: this should be dynamic!
 app.use("/gui" , session({
   name:"user",
   secret: 'mplane'
@@ -593,13 +599,13 @@ function registerCapability(capability , DN){
 motd(function(){console.log("Supervisor listening on "+configuration.main.hostName+"@"+configuration.main.listenPort);});
 
 if (configuration.main.cli)
-    cli();
+    start_cli();
 
 // ---------------------------------------------------------------
 
 var prompt;
 
-function cli(){
+function start_cli(){
     var prompt = "mPlane - "+configuration.main.hostName+"@"+configuration.main.listenPort+"#";
     var questions = [
         {
@@ -660,6 +666,15 @@ function cli(){
 
     ];
 
+	/**************************************************
+	* Warns the user if certs verification is disabled
+	***************************************************/
+	if (!configuration.ssl.requestCert){
+		cli.info("---------------------------");
+		cli.info("WARNING: SSL CERT DISABLED!");
+		cli.info("---------------------------");
+	}
+
     inquirer.prompt( questions, function( answers ) {
         switch (answers.cmd){
             case "quit":
@@ -670,12 +685,12 @@ function cli(){
             case "show":
                 doShow(answers.showType);
                 console.log("\n\n");
-                cli();
+                start_cli();
                 break;
             case "define new specification":
                 if ((answers.dn == "-- No dn yet --") || (answers.capability == '-- No capabilities yet --')){
                     answers.dn = null;
-                    cli();
+                    start_cli();
                     break;
                 }else{
                     console.log(answers);
@@ -689,13 +704,13 @@ function cli(){
                 break;
             case "delete a specification":
                 if (answers.capability == "-- no capabilities yet --"){
-                    cli();
+                    start_cli();
                     break;
                 }else{
                     if (answers.delete_specification)
                         deleteSpecification(answers.capability);
                     else
-                        cli();
+                        start_cli();
                 }
                 break;
             default:
