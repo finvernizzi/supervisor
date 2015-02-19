@@ -21,5 +21,10 @@
         ,"ca": [ "../ca/root-ca/root-ca.crt" ]
         ,"hostName":"Supervisor-1.TI.mplane.org."
         ,"requestCert" : false
+    },
+    "dumpStatus":{
+    	"enabled" : true,
+    	"file": ".dump/supervisor_dump.json",
+    	"interval":300000
     }
 }

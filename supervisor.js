@@ -26,7 +26,8 @@ var mplane = require('mplane'),
     fs = require('fs'),
     ssl_files = require("./ssl_files")
 	,session = require('express-session')
-	,cli = require("cli").enable('status');;
+	,cli = require("cli").enable('status')
+	,fs = require('fs-extra');
 
 
 var CONFIGFILE = "supervisor.json"; //TODO:This should be overwrittable by cli
@@ -106,6 +107,12 @@ httpsServer.on("clientError" , function(exception, securePair){
 
 // FIXME:  implement cli params to overwrite config default
 httpsServer.listen(configuration.main.listenPort);
+
+// Periodically dumps status to file, if enebled
+var dumpTimer = setInterval(function(){
+   	dumpStatus();
+} , configuration.dumpStatus.interval);
+
 
 // Static contents
 app.use(supervisor.GUI_STATIC_PATH, express.static(__dirname + configuration.gui.staticContentDir));
@@ -964,6 +971,35 @@ function supervisorInfo(item , res){
     res.send(JSON.stringify(ret));
 }
 
+//******************************
+// DUMP TO FILE THE STATUS INFO
+// ASYNCH!
+//******************************
+function dumpStatus(){
+	if (!configuration.dumpStatus.enabled){
+		cli.debug("status dump DISABLED");
+		return;
+	}else
+		cli.debug("DUMPING status to"+configuration.dumpStatus.file);
+	// checks the dump file exists, and create it if not
+	fs.ensureFile(configuration.dumpStatus.file, function(err) {
+  		console.log(err); 
+	});	
+}
+
+
+
+
+
+
+
+
+
+//******************************
+
+
+
+
 /**
  * Given a request obj, returns, if available, the distinguised Name or null
  * @param req
@@ -974,8 +1010,12 @@ function DN(req){
     if (!req)
         return null;
     var details = req.connection.getPeerCertificate() || null;
-    if (!details || !details.subjectaltname)
-        return null;
+    if (!details || !details.subjectaltname){
+    	cli.debug("Impossible to read the DN");
+    	console.log(details);
+    	return null;
+    }
+        
    // Extract the DNS altName
    var altName = details.subjectaltname.split(":"); 
    return(altName[1])
