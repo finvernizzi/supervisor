@@ -2,9 +2,11 @@
  * mPlane supervisor example
  *
  * @author fabrizio.invernizzi@telecomitalia.it
- * @version 0.2.0b
- *      Capability push, Specification pull paradigm ONLY
- *		Netvisor GUI extensions integrated 
+ *  	    Capability push, Specification pull paradigm ONLY
+ *
+ *	02_2015	Netvisor GUI extensions integrated
+ *  02_2015 Status persistency with node-persist
+ * 
  * 	TODO: GUI and mPlane on different ports
  *
  */
@@ -27,7 +29,7 @@ var mplane = require('mplane'),
     ssl_files = require("./ssl_files")
 	,session = require('express-session')
 	,cli = require("cli").enable('status')
-	,fs = require('fs-extra');
+	,storage = require('node-persist');
 
 
 var CONFIGFILE = "supervisor.json"; //TODO:This should be overwrittable by cli
@@ -83,10 +85,24 @@ var __results__ = {};
 // List of all DN that have done at least a register capability
 var __registered_DN__= [];
 
+
 /***************************/
 
 // Load the reference registry
 mplane.Element.initialize_registry("registry.json");
+
+//----------------------------------------------------
+// Persistent data storage
+// Automatically stores data
+storage.initSync({
+    dir:configuration.dumpStatus.dir,
+    interval: configuration.dumpStatus.interval
+});
+// Load data on reload if enabled
+restoreStatus();
+// Set elements to be persisted
+dumpStatus();
+//----------------------------------------------------
 
 
 /*********************
@@ -98,20 +114,13 @@ app.use(morgan("combined" ,{ "stream":fs.createWriteStream(configuration.main.lo
 var httpsServer = https.createServer(ssl_options, app);
 
 httpsServer.on("clientError" , function(exception, securePair){
-	cli.debug("--- clientError ---")
-//    console.log(exception);
-//    console.log("--- ------- ---");
-    //console.log(securePair);
-    //console.log("--- clientError ---");
+	cli.debug("--- clientError ---");
 });
 
 // FIXME:  implement cli params to overwrite config default
 httpsServer.listen(configuration.main.listenPort);
 
-// Periodically dumps status to file, if enebled
-var dumpTimer = setInterval(function(){
-   	dumpStatus();
-} , configuration.dumpStatus.interval);
+
 
 
 // Static contents
@@ -136,8 +145,6 @@ app.use(supervisor.GUI_STATIC_PATH,function(req, res, next){
 });
 
 
-// MPLANE uses application/x-mplane+json
-// Form should be parsed
 // parse application/x-www-form-urlencoded
 app.use(bodyParser.urlencoded({ extended: true }));
 // parse application/json
@@ -145,7 +152,6 @@ app.use(bodyParser.json());
 
 // Default parse content as json
 app.use(bodyParser.json({type:"application/*"}));
-
 
 // Error handling
 app.use(function (error, req, res, next) {
@@ -605,15 +611,21 @@ function registerCapability(capability , DN){
 // ---------------------------------------------------------------
 motd(function(){console.log("Supervisor listening on "+configuration.main.hostName+"@"+configuration.main.listenPort);});
 
-if (configuration.main.cli)
-    start_cli();
+start_cli();
 
 // ---------------------------------------------------------------
 
 var prompt;
 
+// parse cli params
+// If the interactive cli is enabled,starts it
 function start_cli(){
-    var prompt = "mPlane - "+configuration.main.hostName+"@"+configuration.main.listenPort+"#";
+	
+	// CLI params
+	cli.parse({});
+	
+	if (configuration.main.interactiveCli){
+		var prompt = "mPlane - "+configuration.main.hostName+"@"+configuration.main.listenPort+"#";
     var questions = [
         {
             type: "list",
@@ -724,6 +736,9 @@ function start_cli(){
                   console.log(answers)
         }
     });
+	}
+
+    
 }
 
 
@@ -977,14 +992,32 @@ function supervisorInfo(item , res){
 //******************************
 function dumpStatus(){
 	if (!configuration.dumpStatus.enabled){
-		cli.debug("status dump DISABLED");
+		cli.debug("DUMP status DISABLED");
 		return;
-	}else
-		cli.debug("DUMPING status to"+configuration.dumpStatus.file);
-	// checks the dump file exists, and create it if not
-	fs.ensureFile(configuration.dumpStatus.file, function(err) {
-  		console.log(err); 
-	});	
+	}else{
+		cli.debug("DUMPING status to "+configuration.dumpStatus.dir);
+  		storage.setItemSync('__registered_capabilities__',__registered_capabilities__);
+  		storage.setItemSync('__required_specifications__',__required_specifications__);
+  		storage.setItemSync('__sent_receipts__',__sent_receipts__);
+  		storage.setItemSync('__registered_DN__',__registered_DN__);
+	}	
+}
+
+//******************************
+// RESTORE FROM FILE THE STATUS INFO
+// ASYNCH!
+//******************************
+function restoreStatus(){
+	if (!configuration.dumpStatus.restoreOnStartup){
+		cli.debug("RESTORE from status dump DISABLED");
+		return;
+	}else{
+		cli.debug("Restoring status from "+configuration.dumpStatus.dir);
+		__registered_capabilities__ = storage.getItemSync('__registered_capabilities__') || {};
+		__required_specifications__ = storage.getItemSync('__required_specifications__') || {};
+		__sent_receipts__ = storage.getItemSync('__sent_receipts__') || {};
+		__registered_DN__ = storage.getItemSync('__registered_DN__') || [];
+	}	
 }
 
 //******************************
@@ -1003,8 +1036,7 @@ function DN(req){
         return null;
     var details = req.connection.getPeerCertificate() || null;
     if (!details || !details.subjectaltname){
-    	cli.debug("Impossible to read the DN");
-    	console.log(details);
+    	cli.debug("Error reading  DN");
     	return null;
     }
         

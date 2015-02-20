@@ -1,0 +1,127 @@
+{
+  "__registered_capabilities__": {
+    "null": {
+      "pinger_Service_Node": {
+        "_params": {
+          "destination.ip4": {
+            "_constrains": {
+              "_prim": "IP",
+              "_name": "Constraint",
+              "_type": "range",
+              "_param": {
+                "valA": "0.0.0.0",
+                "valB": "255.255.255.255"
+              }
+            },
+            "_name": "destination.ip4",
+            "_prim": "IP",
+            "_desc": "Destination or responder of network traffic; active reflector IPv4"
+          },
+          "number": {
+            "_constrains": {
+              "_prim": "NATURAL",
+              "_name": "Constraint",
+              "_type": "range",
+              "_param": {
+                "valA": "1",
+                "valB": "10"
+              }
+            },
+            "_name": "number",
+            "_prim": "NATURAL",
+            "_desc": "Number of times"
+          },
+          "source.ip4": {
+            "_constrains": {
+              "_prim": "IP",
+              "_name": "Constraint",
+              "_type": "singleton",
+              "_param": "192.168.123.4"
+            },
+            "_name": "source.ip4",
+            "_prim": "IP",
+            "_desc": "Source or initiator of network traffic; active meter IPv4"
+          }
+        },
+        "_metadata": {
+          "System_type": "Pinger",
+          "System_version": "0.1a",
+          "System_ID": "Service node"
+        },
+        "_link": null,
+        "_verb": "measure",
+        "_label": "pinger_Service_Node",
+        "_when": {
+          "_a": "now",
+          "_b": "future",
+          "_d": null,
+          "_p": 1,
+          "__string__": "now ... future / 1s"
+        },
+        "_schedule": null,
+        "_resultvalues": {
+          "delay.twoway": []
+        },
+        "_token": "065e9d9e7d358b637e7e8a5316be7e4a42ea80b7",
+        "eventTime": "2015-02-19T15:15:24.295Z"
+      },
+      "tracer_Service_Node": {
+        "_params": {
+          "destination.ip4": {
+            "_constrains": {
+              "_prim": "IP",
+              "_name": "Constraint",
+              "_type": "range",
+              "_param": {
+                "valA": "0.0.0.0",
+                "valB": "255.255.255.255"
+              }
+            },
+            "_name": "destination.ip4",
+            "_prim": "IP",
+            "_desc": "Destination or responder of network traffic; active reflector IPv4"
+          },
+          "source.ip4": {
+            "_constrains": {
+              "_prim": "IP",
+              "_name": "Constraint",
+              "_type": "singleton",
+              "_param": "192.168.123.4"
+            },
+            "_name": "source.ip4",
+            "_prim": "IP",
+            "_desc": "Source or initiator of network traffic; active meter IPv4"
+          }
+        },
+        "_metadata": {
+          "System_type": "Tracer",
+          "System_version": "0.1a",
+          "System_ID": "Service node"
+        },
+        "_link": null,
+        "_verb": "measure",
+        "_label": "tracer_Service_Node",
+        "_when": {
+          "_a": "now",
+          "_b": "future",
+          "_d": null,
+          "_p": 1,
+          "__string__": "now ... future / 1s"
+        },
+        "_schedule": null,
+        "_resultvalues": {
+          "delay.twoway": [],
+          "hops.ip": []
+        },
+        "_token": "2b58e392d2d137802eb5264e3cf06a5c00d0c1cc",
+        "eventTime": "2015-02-19T15:15:24.296Z"
+      }
+    }
+  },
+  "__required_specifications__": {},
+  "__sent_receipts__": {},
+  " __results__": {},
+  "__registered_DN__": [
+    null
+  ]
+}

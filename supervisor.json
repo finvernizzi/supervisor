@@ -3,7 +3,7 @@
         "logFile":"/var/log/mplane/supervisor.log",
         "listenPort":2427,
         "hostName":"Supervisor-1.TI.mplane.org",
-        "cli":false,
+        "interactiveCli":false,
 		"keep_claimed_results" : true
     },
 	"reasoner":{
@@ -25,6 +25,8 @@
     "dumpStatus":{
     	"enabled" : true,
     	"file": ".dump/supervisor_dump.json",
-    	"interval":300000
+    	"dir": ".dump",
+    	"interval":10000,
+    	"restoreOnStartup":true
     }
 }
