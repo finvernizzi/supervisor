@@ -4,8 +4,9 @@
  * @author fabrizio.invernizzi@telecomitalia.it
  *  	    Capability push, Specification pull paradigm ONLY
  *
- *	02_2015	Netvisor GUI extensions integrated
- *  02_2015 Status persistency with node-persist
+ *	  02_2015	Netvisor GUI extensions integrated
+ *    02_2015 	Status persistency with node-persist
+ *  2102_2015 	Keeps track of Specification checks from DN. If not seen in main.capabilityLostPeriod, they are deleted 
  * 
  * 	TODO: GUI and mPlane on different ports
  *
@@ -29,8 +30,12 @@ var mplane = require('mplane'),
     ssl_files = require("./ssl_files")
 	,session = require('express-session')
 	,cli = require("cli").enable('status')
-	,storage = require('node-persist');
+	,serialize = require('node-serialize')
+	,events = require('events')
+	,fs = require('fs-extra');
 
+// This is done to have a persistency in critical information
+var eventEmitter = new events.EventEmitter();
 
 var CONFIGFILE = "supervisor.json"; //TODO:This should be overwrittable by cli
 
@@ -85,6 +90,9 @@ var __results__ = {};
 // List of all DN that have done at least a register capability
 var __registered_DN__= [];
 
+// In order to drop lost DNs, we remember the last time we have seen a Specification pull 
+var __last_seen_DNs__ = {}
+
 
 /***************************/
 
@@ -92,17 +100,18 @@ var __registered_DN__= [];
 mplane.Element.initialize_registry("registry.json");
 
 //----------------------------------------------------
-// Persistent data storage
-// Automatically stores data
-storage.initSync({
-    dir:configuration.dumpStatus.dir,
-    interval: configuration.dumpStatus.interval
-});
+// DATA persistency. Dump can be triggered by DBChangedEvent
 // Load data on reload if enabled
 restoreStatus();
-// Set elements to be persisted
-dumpStatus();
+// On change on critical elements, dump them
+eventEmitter.on('DBChangedEvent', dumpStatus);
+
 //----------------------------------------------------
+
+// Check for dead DN 
+var recheck = setInterval(function(){
+   removeDeadCapabilities();
+} , 5000);
 
 
 /*********************
@@ -121,15 +130,15 @@ httpsServer.on("clientError" , function(exception, securePair){
 httpsServer.listen(configuration.main.listenPort);
 
 
-
-
 // Static contents
 app.use(supervisor.GUI_STATIC_PATH, express.static(__dirname + configuration.gui.staticContentDir));
 
 //FIXME: this should be dynamic!
 app.use("/gui" , session({
   name:"user",
-  secret: 'mplane'
+  secret: 'mplane',
+  resave: false,
+  saveUninitialized : false
 }));
 
 app.use(supervisor.GUI_STATIC_PATH,function(req, res, next){
@@ -179,7 +188,6 @@ app.get(supervisor.GUI_USERSETTINGS_PATH,function(req , res){
   res.send(JSON.stringify({}));
 });
 
-
 /***********************************************************************************
 *
 *	HTTP API
@@ -190,9 +198,12 @@ app.get(supervisor.GUI_USERSETTINGS_PATH,function(req , res){
  * The data structrure is : [DN][token] where token can be the capability token or the label
  */
 app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
-    __registered_DN__.push(DN(req));
-    __registered_DN__ = _.uniq(__registered_DN__);
-
+	registerDN(DN(req));
+	//__registered_DN__.push(DN(req));
+    //__registered_DN__ = _.uniq(__registered_DN__);
+    
+	updateLasteSeen(DN(req));
+	
     var newCapability
         ,port = configuration.main.listenPort
         ,proto="https";
@@ -214,12 +225,11 @@ app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
                 newToken = registerCapability(newCapability , DN(req));
         }
     });
-	//console.log(JSON.stringify(ret)); 
     res.send(JSON.stringify(ret));
 });
 
 /**
- * SomeOne sending a SPECIFICATION
+ * Someone sending a SPECIFICATION
  * We expect the json form:{DistinguishedName:{specification}}. This allows for send specification for a different DN from sender (es a client registering a specification for a probe)
  *
  */
@@ -303,7 +313,7 @@ app.get([supervisor.SUPERVISOR_PATH_SHOW_SPECIFICATION , supervisor.GUI_LISTPEND
 		ret = [];
 	}
 		var dn = DN(req);
-		//if (dn) {
+		updateLasteSeen(dn);
 			// Only the required DN or all DNs
 			if (dn && __registered_DN__.indexOf(dn) != -1){
 				DNs.push(dn);
@@ -324,7 +334,6 @@ app.get([supervisor.SUPERVISOR_PATH_SHOW_SPECIFICATION , supervisor.GUI_LISTPEND
 							// Usefull meta info
 							spec.set_metadata_value("eventTime",__required_specifications__[d][label][specHash].eventTime);
 							spec.set_metadata_value("specification_status",__required_specifications__[d][label][specHash].specification_status);
-							// to_dict output is a string, but here we need a json.
 							// Better this solution to keep the API
 							if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
 								ret[dn].push(JSON.parse(spec.to_dict()));
@@ -338,7 +347,6 @@ app.get([supervisor.SUPERVISOR_PATH_SHOW_SPECIFICATION , supervisor.GUI_LISTPEND
 					});
 				});
 			});
-		//}
 		res.status(statusCode).end(JSON.stringify(ret));
 	//}
 });
@@ -591,6 +599,7 @@ function capabilityAlreadyRegistered(capability , DN){
 /*
  registerCapability
  Register a new capability for a specific DN
+ Emits a DBChangedEvent
  @param the mPlane capability object to be registered
  @param DN the DN
  */
@@ -601,8 +610,19 @@ function registerCapability(capability , DN){
     if (!__registered_capabilities__[DN][token]){
         __registered_capabilities__[DN][token] = capability;
         __registered_capabilities__[DN][token]['eventTime'] = new Date(); // The time we registered the capability
+        eventEmitter.emit('DBChangedEvent');
     }
     return token;
+}
+
+/*
+	Register a DN and checks the uniqueness
+	Emits a DBChangedEvent
+*/
+function registerDN(dn){
+	__registered_DN__.push(dn);
+    __registered_DN__ = _.uniq(__registered_DN__);
+    eventEmitter.emit('DBChangedEvent');
 }
 
 
@@ -623,6 +643,10 @@ function start_cli(){
 	
 	// CLI params
 	cli.parse({});
+	
+	if (!configuration.ssl.requestCert){
+		cli.info("Certificatate request is DISABLED");
+	}
 	
 	if (configuration.main.interactiveCli){
 		var prompt = "mPlane - "+configuration.main.hostName+"@"+configuration.main.listenPort+"#";
@@ -982,7 +1006,6 @@ function supervisorInfo(item , res){
     ret.arch = process.arch;
     ret.memory = process.memoryUsage();
     ret.upTime = process.uptime();
-
     res.send(JSON.stringify(ret));
 }
 
@@ -996,10 +1019,16 @@ function dumpStatus(){
 		return;
 	}else{
 		cli.debug("DUMPING status to "+configuration.dumpStatus.dir);
-  		storage.setItemSync('__registered_capabilities__',__registered_capabilities__);
-  		storage.setItemSync('__required_specifications__',__required_specifications__);
-  		storage.setItemSync('__sent_receipts__',__sent_receipts__);
-  		storage.setItemSync('__registered_DN__',__registered_DN__);
+		fs.outputFile(configuration.dumpStatus.dir + '/__registered_capabilities__.dump', JSON.stringify(__registered_capabilities__), function (err) {
+  			if (err){
+  				cli.error("Error dumping "+configuration.dumpStatus.dir + '/__registered_capabilities__.dump');
+  			}
+		});
+		fs.outputFile(configuration.dumpStatus.dir + '/__registered_DN__.dump', JSON.stringify(__registered_DN__), function (err) {
+  			if (err){
+  				cli.error("Error dumping "+configuration.dumpStatus.dir + '/__registered_DN__.dump');
+  			}
+		});
 	}	
 }
 
@@ -1013,17 +1042,51 @@ function restoreStatus(){
 		return;
 	}else{
 		cli.debug("Restoring status from "+configuration.dumpStatus.dir);
-		__registered_capabilities__ = storage.getItemSync('__registered_capabilities__') || {};
-		__required_specifications__ = storage.getItemSync('__required_specifications__') || {};
-		__sent_receipts__ = storage.getItemSync('__sent_receipts__') || {};
-		__registered_DN__ = storage.getItemSync('__registered_DN__') || [];
+		fs.readFile(configuration.dumpStatus.dir + '/__registered_capabilities__.dump', 'utf8', function(err, data) {
+			if (data)
+    			__registered_capabilities__ = JSON.parse(data  || {});
+  		});
+		fs.readFile(configuration.dumpStatus.dir + '/__registered_DN__.dump', 'utf8', function(err, data) {
+			if (data)
+    			__registered_DN__ = JSON.parse(data || []);
+  		});
 	}	
 }
 
 //******************************
 
+// Capabilities aging functions
+function updateLasteSeen(dn){
+	// Update last seen DN 
+	if (dn){
+		__last_seen_DNs__[dn] = new Date();
+	}
+}
+function removeDeadCapabilities(){
+	for (var i=0 ; i<__registered_DN__.length ; i++){
+		dn = __registered_DN__[i];
+		if (__last_seen_DNs__[dn]){
+			var msecSinceLastSeen = (new Date() - __last_seen_DNs__[dn]);
+			if (msecSinceLastSeen >= configuration.main.capabilityLostPeriod){
+				cli.debug(dn + " LOST");
+				__registered_DN__.splice(i, 1);
+				delete (__last_seen_DNs__[dn]);
+				delete (__registered_capabilities__[dn]);
+				eventEmitter.emit('DBChangedEvent');
+			}
+		}else{
+			cli.debug(dn + " LOST");
+			// If I have no info of the DN, delete it!
+			//delete (__registered_DN__[i]);
+			__registered_DN__.splice(i, 1);
+			delete (__last_seen_DNs__[dn]);
+			delete (__registered_capabilities__[dn]);
+			eventEmitter.emit('DBChangedEvent');
+		}
+	}
+}
 
-
+//******************************
 
 /**
  * Given a request obj, returns, if available, the distinguised Name or null
@@ -1032,22 +1095,21 @@ function restoreStatus(){
  * @constructor
  */
 function DN(req){
-    if (!req)
+	if (!req)
         return null;
     var details = req.connection.getPeerCertificate() || null;
     if (!details || !details.subjectaltname){
     	cli.debug("Error reading  DN");
     	return null;
-    }
-        
+    }     
    // Extract the DNS altName
    var altName = details.subjectaltname.split(":"); 
    return(altName[1])
 }
 
 function motd(callback){
-        console.log();
-        console.log();
+	console.log();
+    console.log();
 	console.log("    ###########################################");
 	console.log("    ###$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$##");
 	console.log("    ##$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$##");

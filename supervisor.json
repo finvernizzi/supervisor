@@ -4,7 +4,8 @@
         "listenPort":2427,
         "hostName":"Supervisor-1.TI.mplane.org",
         "interactiveCli":false,
-		"keep_claimed_results" : true
+		"keep_claimed_results" : true,
+    	"capabilityLostPeriod": 10000
     },
 	"reasoner":{
 		"url":"127.0.0.1",
@@ -20,7 +21,7 @@
         ,"cert": "../ca/certs/Supervisor-TI.crt"
         ,"ca": [ "../ca/root-ca/root-ca.crt" ]
         ,"hostName":"Supervisor-1.TI.mplane.org."
-        ,"requestCert" : false
+        ,"requestCert" : true
     },
     "dumpStatus":{
     	"enabled" : true,
