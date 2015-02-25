@@ -7,6 +7,7 @@
  *	  02_2015	Netvisor GUI extensions integrated
  *    02_2015 	Status persistency with node-persist
  *  2102_2015 	Keeps track of Specification checks from DN. If not seen in main.capabilityLostPeriod, they are deleted 
+ *  2502_2015	Gracefull shutdown with ^C: it dumps relevant info and then shuts down
  * 
  * 	TODO: GUI and mPlane on different ports
  *
@@ -67,6 +68,14 @@ var __SPEC_STATUS_RESULT_READY_="result_ready";
 
 // Process name for ps
 process.title = "mPlane supervisor";
+
+// Gracefull shutdown
+process.on('SIGINT', function() {
+	dumpStatus(function(){
+		console.log("\nNothing more to do here, BYE!");
+		process.exit();
+	});
+});
 
 /***************************
  *
@@ -1013,7 +1022,9 @@ function supervisorInfo(item , res){
 // DUMP TO FILE THE STATUS INFO
 // ASYNCH!
 //******************************
-function dumpStatus(){
+function dumpStatus(callback){
+	// Simple way to be sure everything has been dumped...
+	var done = [false, false];
 	if (!configuration.dumpStatus.enabled){
 		cli.debug("DUMP status DISABLED");
 		return;
@@ -1023,11 +1034,17 @@ function dumpStatus(){
   			if (err){
   				cli.error("Error dumping "+configuration.dumpStatus.dir + '/__registered_capabilities__.dump');
   			}
+  			done[0] = true;
+  			if (done[1] && callback)
+  				callback();
 		});
 		fs.outputFile(configuration.dumpStatus.dir + '/__registered_DN__.dump', JSON.stringify(__registered_DN__), function (err) {
   			if (err){
   				cli.error("Error dumping "+configuration.dumpStatus.dir + '/__registered_DN__.dump');
   			}
+  			done[1] = true;
+  			if (done[0]  && callback)
+  				callback();
 		});
 	}	
 }
