@@ -106,7 +106,7 @@ var __last_seen_DNs__ = {}
 /***************************/
 
 // Load the reference registry
-mplane.Element.initialize_registry("registry.json");
+mplane.Element.initialize_registry(configuration.registry.url);
 
 //----------------------------------------------------
 // DATA persistency. Dump can be triggered by DBChangedEvent
