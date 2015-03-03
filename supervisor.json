@@ -29,5 +29,8 @@
     	"dir": ".dump",
     	"interval":10000,
     	"restoreOnStartup":true
+    },
+    "registry":{
+		"url": "https://raw.githubusercontent.com/fp7mplane/protocol-ri/master/mplane/registry.json"
     }
 }
