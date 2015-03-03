@@ -78,7 +78,7 @@
             "prim":  "IP",
             "desc": "Destination or responder of network traffic; active reflector IPv4"
         }
-        ,"ip4":{
+        ,"ip":{
             "name": "IPv4 destination address",
             "prim":  "IP",
             "desc": "Destination or responder of network traffic; active reflector IPv4"
@@ -87,6 +87,11 @@
             "name": "IPv6 destination address",
             "prim":  "ip6",
             "desc": "Destination or responder of network traffic; active reflector IPv6"
+        }
+        ,"fqdn":{
+            "name": "IPv6 destination address",
+            "prim":  "string",
+            "desc": "Destination or responder of network traffic FQDN"
         }
     }
     ,"observer": {
@@ -228,8 +233,8 @@
             "prim":  "real",
             "desc": "Connectivity at IP layer"
         }
-		,"tcp": {
-            "name": "ip",
+	,"tcp": {
+            "name": "tcp",
             "prim":  "real",
             "desc": "Connectivity delay at TCP layer"
                 ,"oneway": {
@@ -252,6 +257,32 @@
                     "name": "mean",
                     "prim": "real",
                     "desc": "Mean observed delay in TCP connectivity from source to destination and back"
+                }
+            }
+        },"udp": {
+            "name": "ip",
+            "prim":  "real",
+            "desc": "Connectivity delay at UDP layer"
+                ,"oneway": {
+                    "name": "oneway",
+                    "prim":  "real",
+                    "desc": "Delay or connectivity from source to destination"
+                }
+                ,"twoway": {
+                "min": {
+                    "name": "min",
+                    "prim": "real",
+                    "desc": "Minimum observed delay in UDP connectivity from source to destination and back"
+                },
+                "max": {
+                    "name": "max",
+                    "prim": "real",
+                    "desc": "Maximum observed delay in UDP connectivity from source to destination and back"
+                },
+                "mean": {
+                    "name": "mean",
+                    "prim": "real",
+                    "desc": "Mean observed delay in UDP connectivity from source to destination and back"
                 }
             }
         }

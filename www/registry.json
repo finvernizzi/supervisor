@@ -99,6 +99,11 @@
       "desc": "A locally-scoped identifier of a destination device of an event/flow, or the target of an active measurement"
     },
     {
+       "name": "destination.fqdn",
+       "prim":  "string",
+       "desc": "Destination or responder of network traffic FQDN"
+    },
+    {
       "name": "destination.as",
       "prim": "natural",
       "desc": "BGP AS number of the destination of an event/flow, or AS target of an active measurement"
