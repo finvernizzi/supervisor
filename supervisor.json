@@ -2,6 +2,7 @@
     "main":{
         "logFile":"/var/log/mplane/supervisor.log",
         "listenPort":2427,
+        "webGuiPort":8080,
         "hostName":"Supervisor-1.TI.mplane.org",
         "interactiveCli":false,
 		"keep_claimed_results" : true,
@@ -31,6 +32,7 @@
     	"restoreOnStartup":true
     },
     "registry":{
-		"url": "https://raw.githubusercontent.com/fp7mplane/protocol-ri/master/mplane/registry.json"
+		"__url": "https://raw.githubusercontent.com/fp7mplane/protocol-ri/master/mplane/registry.json",
+		"url": "file:///Users/invernizzi/Documents/mplane/registry.json"
     }
 }
