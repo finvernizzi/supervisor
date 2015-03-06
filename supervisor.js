@@ -8,18 +8,20 @@
  *    02_2015 	Status persistency with node-persist
  *  2102_2015 	Keeps track of Specification checks from DN. If not seen in main.capabilityLostPeriod, they are deleted 
  *  2502_2015	Gracefull shutdown with ^C: it dumps relevant info and then shuts down
- * 
- * 	TODO: GUI and mPlane on different ports
+ *  0603_2015   GUI and Supervisor app listen on different ports 
+ *
  *
  */
 
 // PM2 route analytics
-require('pmx').init();
+// var pmx = require('pmx').init();
+// pmx.http();
 
 var mplane = require('mplane'),
     express = require('express'),
     morgan  = require('morgan'),
     app = express(),
+    gui_app = express(),
     inquirer = require("inquirer"),
     _ = require("lodash"),
     prettyjson = require('prettyjson'),
@@ -68,6 +70,16 @@ var __SPEC_STATUS_RESULT_READY_="result_ready";
 
 // Process name for ps
 process.title = "mPlane supervisor";
+
+// PM2 soft reload
+process.on("message", function(message) {
+    if(message == "shutdown") {
+        dumpStatus(function(){
+			console.log("\nNothing more to do here, BYE!");
+			process.exit();
+		});
+    }
+});
 
 // Gracefull shutdown
 process.on('SIGINT', function() {
@@ -128,38 +140,40 @@ var recheck = setInterval(function(){
 *********************/
 // Log all requests to file
 app.use(morgan("combined" ,{ "stream":fs.createWriteStream(configuration.main.logFile)}));
+gui_app.use(morgan("combined" ,{ "stream":fs.createWriteStream(configuration.main.logFile)}));
 
 var httpsServer = https.createServer(ssl_options, app);
+var httpsGuiServer = https.createServer(ssl_options, gui_app);
 
 httpsServer.on("clientError" , function(exception, securePair){
 	cli.debug("--- clientError ---");
 });
 
-// FIXME:  implement cli params to overwrite config default
 httpsServer.listen(configuration.main.listenPort);
+httpsGuiServer.listen(configuration.main.webGuiPort);
 
 
 // Static contents
-app.use(supervisor.GUI_STATIC_PATH, express.static(__dirname + configuration.gui.staticContentDir));
+gui_app.use(supervisor.GUI_STATIC_PATH, express.static(__dirname + configuration.gui.staticContentDir));
 
 //FIXME: this should be dynamic!
-app.use("/gui" , session({
+gui_app.use("/gui" , session({
   name:"user",
   secret: 'mplane',
   resave: false,
   saveUninitialized : false
 }));
 
-app.use(supervisor.GUI_STATIC_PATH,function(req, res, next){
-    // Is the client claiming a valid certificate?
-    if (req.client.authorized){
-        next();
-    }else{
-       res.writeHead("403", {
-            'Error': "Invalid certificate or no certificate provided"
-       });
-        res.end("Invalid certificate or certificate not provided");
-    }
+gui_app.use(supervisor.GUI_STATIC_PATH,function(req, res, next){
+		// Is the client claiming a valid certificate?
+    	if (req.client.authorized){
+    	    next();
+    	}else{
+    	   res.writeHead("403", {
+    	        'Error': "Invalid certificate or no certificate provided"
+    	   });
+    	    res.end("Invalid certificate or certificate not provided");
+    	}
 });
 
 
@@ -181,20 +195,38 @@ app.use(function (error, req, res, next) {
   }
 });
 
+// parse application/x-www-form-urlencoded
+gui_app.use(bodyParser.urlencoded({ extended: true }));
+// parse application/json
+gui_app.use(bodyParser.json());
+
+// Default parse content as json
+gui_app.use(bodyParser.json({type:"application/*"}));
+
+// Error handling
+gui_app.use(function (error, req, res, next) {
+  if (!error) {
+    next();
+  } else {
+    console.error(error.stack);
+    res.sendStatus(500);
+  }
+});
+
 /***********************************************************************************/
 //
 // 			--- GUI specific route ---
 //
 /***********************************************************************************/
 
-app.post(supervisor.GUI_LOGIN_PATH ,function(req , res){
-	//TODO: implement user authentication!
-	res.cookie('user', 'mPlane');
-	res.send(JSON.stringify({}));
+gui_app.post(supervisor.GUI_LOGIN_PATH ,function(req , res){
+		//TODO: implement user authentication!
+		res.cookie('user', 'mPlane');
+		res.send(JSON.stringify({}));
 });
 // Here the gui asks for knowing if authenticated.
-app.get(supervisor.GUI_USERSETTINGS_PATH,function(req , res){
-  res.send(JSON.stringify({}));
+gui_app.get(supervisor.GUI_USERSETTINGS_PATH,function(req , res){
+	res.send(JSON.stringify({}));
 });
 
 /***********************************************************************************
@@ -242,7 +274,11 @@ app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
  * We expect the json form:{DistinguishedName:{specification}}. This allows for send specification for a different DN from sender (es a client registering a specification for a probe)
  *
  */
-app.post([supervisor.SUPERVISOR_PATH_REGISTER_SPECIFICATION  , supervisor.GUI_RUNCAPABILITY_PATH] , function(req, res){
+app.post(supervisor.SUPERVISOR_PATH_REGISTER_SPECIFICATION  , function(req, res){
+	registerSpecification(req , res);
+
+	return;
+
 	var url = new String(req.url);
 	var dns = [];
 	var newSpecification;
@@ -285,6 +321,10 @@ app.post([supervisor.SUPERVISOR_PATH_REGISTER_SPECIFICATION  , supervisor.GUI_RU
     }
 });
 
+gui_app.post( supervisor.GUI_RUNCAPABILITY_PATH, function(req, res){
+	registerSpecification(req , res);
+});
+
 
 // For show
 app.param('itemType', function(req,res, next, itemType){
@@ -311,74 +351,22 @@ app.param('token', function(req,res, next, token){
  * We recognize the requester by its DN
  * If it is a registered probe, we send only its specifications, otherwise we send a 428 code with no specification
  */
-app.get([supervisor.SUPERVISOR_PATH_SHOW_SPECIFICATION , supervisor.GUI_LISTPENDINGS_PATH], function(req, res){
-	var ret,
-        statusCode = 200
-        ,DNs = [];//Here we put all the DNs for filtering specifications from
-	// Is the GUI request or the standard mPlane API?
-	if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
-		ret = {};
-	}else{
-		ret = [];
-	}
-		var dn = DN(req);
-		updateLasteSeen(dn);
-			// Only the required DN or all DNs
-			if (dn && __registered_DN__.indexOf(dn) != -1){
-				DNs.push(dn);
-			}else{
-				_.each(_.keys(__required_specifications__), function(curDN){
-					DNs.push(curDN);
-				})
-			}
-			DNs.forEach(function(d,index){
-				if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
-					if (!ret[dn])
-						ret[dn] = [];
-				}
-				_.each(_.keys(__required_specifications__[d]) , function(label){
-					_.each(_.keys(__required_specifications__[d][label]) , function(specHash){
-						if ((__required_specifications__[d][label][specHash].specification_status == __SPEC_STATUS_QUEUED_)) {
-							var spec = new mplane.Specification(__required_specifications__[d][label][specHash]);
-							// Usefull meta info
-							spec.set_metadata_value("eventTime",__required_specifications__[d][label][specHash].eventTime);
-							spec.set_metadata_value("specification_status",__required_specifications__[d][label][specHash].specification_status);
-							// Better this solution to keep the API
-							if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
-								ret[dn].push(JSON.parse(spec.to_dict()));
-							}else{
-								spec.set_when("now + 1s");
-								ret.push(JSON.parse(spec.to_dict()));
-								// Supervisor internal status
-								__required_specifications__[d][label][specHash].specification_status = __SPEC_STATUS_PROBE_TAKEN_;
-							}
-						}
-					});
-				});
-			});
-		res.status(statusCode).end(JSON.stringify(ret));
-	//}
+app.get(supervisor.SUPERVISOR_PATH_SHOW_SPECIFICATION, function(req, res){
+	showSpecifications(req , res);
+});
+gui_app.get( supervisor.GUI_LISTPENDINGS_PATH, function(req, res){
+	showSpecifications(req , res);
 });
 
 /**
  * Someone is asking for capability(s)
  * We recognize the requester by its DN
  */
-app.get([supervisor.SUPERVISOR_PATH_SHOW_CAPABILITY , supervisor.GUI_LISTCAPABILITIES_PATH], function(req, res){
-    var ret = {};//Here we put all the DNs for filtering specifications from
-    var dn = DN(req);
-	
-    for (dn in __registered_capabilities__){
-        for (label in __registered_capabilities__[dn]){
-            if (!ret[dn])
-                ret[dn] = [];
-            // We add in meta some useful info
-            var cap = new mplane.Capability(__registered_capabilities__[dn][label]);
-            cap.set_metadata_value('eventTime' ,__registered_capabilities__[dn][label]['eventTime'] || "");
-            ret[dn].push(JSON.parse(cap.to_dict()));
-        }
-    };
-    res.send(JSON.stringify(ret));
+app.get(supervisor.SUPERVISOR_PATH_SHOW_CAPABILITY, function(req, res){
+	showCapability(req , res);
+});
+gui_app.get(supervisor.GUI_LISTCAPABILITIES_PATH, function(req, res){
+	showCapability(req , res);
 });
 
 /**
@@ -407,7 +395,7 @@ app.post(supervisor.SUPERVISOR_PATH_REGISTER_RESULT, function(req, res){
  * GUI asking for available results
  */
 
-app.get(supervisor.GUI_LISTRESULTS_PATH, function(req, res){
+gui_app.get(supervisor.GUI_LISTRESULTS_PATH, function(req, res){
 	var dns = _.keys(__results__);
 	var ret = {};
 	for (d=0 ; d<dns.length ; d++){
@@ -466,7 +454,7 @@ app.all([supervisor.SUPERVISOR_PATH_SHOW_RESULT ], function(req, res){
  * GUI result details
  * The parameter is the Specification token
  */
-app.get([supervisor.GUI_GETRESULT_PATH ], function(req, res){
+gui_app.get(supervisor.GUI_GETRESULT_PATH , function(req, res){
 	if (!req.query.token || !__sent_receipts__[req.query.token]){
 		res.json({});
 		return;
@@ -486,7 +474,7 @@ app.get(supervisor.SUPERVISOR_PATH_INFO, function(req , res){
 
 // Reasoner net status
 // The supervisor simply ask the json to the reasoner agent and sends it back to the client
-app.get("/gui/reasoner/netview", function(req, res){
+gui_app.get("/gui/reasoner/netview", function(req, res){
 	var bodyChunks = [];
 	var options = {
 	  host: configuration.reasoner.url,
@@ -521,75 +509,12 @@ app.get("/gui/reasoner/netview", function(req, res){
 //**************************************
 // Redirect to default url. For the GUI
 //**************************************
-app.use("", function(req , res){
+gui_app.use("", function(req , res){
 	res.redirect(configuration.gui.defaultUrl);
 });
 
 //====================================================================================================================
 
-
-/**
-* showCapabilities
-*	Given a dn, return a json array with all capabilities.
-* 	if no dn is provided, all known capabilities are provided
-* 
-**/
-function showCapabilities(dn){
-	var ret = {};//Here we put all the DNs for filtering specifications from
-    
-	for (dn in __registered_capabilities__){
-        for (label in __registered_capabilities__[dn]){
-            if (!ret[dn])
-                ret[dn] = [];
-            // We add in meta some useful info
-            var cap = new mplane.Capability(__registered_capabilities__[dn][label]);
-            cap.set_metadata_value('eventTime' ,__registered_capabilities__[dn][label]['eventTime'] || "");
-            ret[dn].push(JSON.parse(cap.to_dict()));
-        }
-    };
-	return ret;
-}
-
-/*********************************************************************
-*	registerSpecification
-*
-* Given a distinguished name and a Specification, registers it
-* Return the Receipt upon success, null otherwise
-*******************************************************************/
-function registerSpecification(dn , newSpecification){
-	//var dns = _.keys(req.body); // We expect to have a DN as key, so dn[0] should be the DN
-    //var newSpecification = mplane.from_dict(req.body[dns[0]]);
-	
-    if (!(newSpecification instanceof mplane.Specification) || !dn){
-        // Bad Request
-        //res.writeHead(400, {
-        //    'Error': "mPlane error: not a specification/wrong format"
-        //});
-        //res.end();
-		return null;
-    }else{
-        //var dn = dns[0];
-        var label = newSpecification.get_label();
-        var specToken = newSpecification.get_token();
-        if (!__required_specifications__[dn])
-            __required_specifications__[dn] = {}; // We can have multiple request for a single component
-        if (!__required_specifications__[dn][label])
-            __required_specifications__[dn][label] = {}; // We can have multiple request for a single capability of a dn
-        newSpecification.specification_status = __SPEC_STATUS_QUEUED_;
-        __required_specifications__[dn][label][specToken]= {};
-        __required_specifications__[dn][label][specToken]= newSpecification;
-        __required_specifications__[dn][label][specToken]['eventTime']= new Date(); // When we received the specification
-
-        // Receipt
-        receipt = new mplane.Receipt(newSpecification);
-        // We keep an index to easily access from the receipt token the associated specification/results
-        if (!__sent_receipts__[receipt.get_token()])
-            __sent_receipts__[receipt.get_token()] = {};
-        __sent_receipts__[receipt.get_token()] = {dn:dn , label: label, specificationToken:specToken};
-        //res.send(receipt.to_dict());
-		return receipt;
-    }
-}
 
 
 /**
@@ -634,11 +559,119 @@ function registerDN(dn){
     eventEmitter.emit('DBChangedEvent');
 }
 
+function registerSpecification(req, res){
+var url = new String(req.url);
+	var dns = [];
+	var newSpecification;
+	// Is the GUI request or the standard mPlane API?
+	if (req.url.slice(0, supervisor.GUI_RUNCAPABILITY_PATH.length) == supervisor.GUI_RUNCAPABILITY_PATH){
+		var urlParams = req.url.split("DN=");
+		dns.push(urlParams[1]);
+		newSpecification = new mplane.Specification(mplane.from_dict(req.body));
+	}else{
+		dns = _.keys(req.body); // We expect to have a DN as key, so dn[0] should be the DN
+		newSpecification = mplane.from_dict(req.body[dns[0]]);
+	}
+		
+    if (!(newSpecification instanceof mplane.Specification)){
+        // Bad Request
+        res.writeHead(400, {
+            'Error': "mPlane error: not a specification/wrong format"
+        });
+        res.end();
+    }else{
+        var dn = dns[0];
+        var label = newSpecification.get_label();
+        var specToken = newSpecification.get_token();
+        if (!__required_specifications__[dn])
+            __required_specifications__[dn] = {}; // We can have multiple request for a single component
+        if (!__required_specifications__[dn][label])
+            __required_specifications__[dn][label] = {}; // We can have multiple request for a single capability of a dn
+        newSpecification.specification_status = __SPEC_STATUS_QUEUED_;
+        __required_specifications__[dn][label][specToken]= {};
+        __required_specifications__[dn][label][specToken]= newSpecification;
+        __required_specifications__[dn][label][specToken]['eventTime']= new Date(); // When we received the specification
+
+        // Receipt
+        receipt = new mplane.Receipt(newSpecification);
+        // We keep an index to easily access from the receipt token the associated specification/results
+        if (!__sent_receipts__[receipt.get_token()])
+            __sent_receipts__[receipt.get_token()] = {};
+        __sent_receipts__[receipt.get_token()] = {dn:dn , label: label, specificationToken:specToken};
+        res.send(receipt.to_dict());
+    }
+}
+
+function showCapability(req , res){
+	var ret = {};//Here we put all the DNs for filtering specifications from
+    var dn = DN(req);
+	
+    for (dn in __registered_capabilities__){
+        for (label in __registered_capabilities__[dn]){
+            if (!ret[dn])
+                ret[dn] = [];
+            // We add in meta some useful info
+            var cap = new mplane.Capability(__registered_capabilities__[dn][label]);
+            cap.set_metadata_value('eventTime' ,__registered_capabilities__[dn][label]['eventTime'] || "");
+            ret[dn].push(JSON.parse(cap.to_dict()));
+        }
+    };
+    res.send(JSON.stringify(ret));
+}
+
+function showSpecifications(req , res){
+	var ret,
+        statusCode = 200
+        ,DNs = [];//Here we put all the DNs for filtering specifications from
+	// Is the GUI request or the standard mPlane API?
+	if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
+		ret = {};
+	}else{
+		ret = [];
+	}
+		var dn = DN(req);
+		updateLasteSeen(dn);
+			// Only the required DN or all DNs
+			if (dn && __registered_DN__.indexOf(dn) != -1){
+				DNs.push(dn);
+			}else{
+				_.each(_.keys(__required_specifications__), function(curDN){
+					DNs.push(curDN);
+				})
+			}
+			DNs.forEach(function(d,index){
+				if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
+					if (!ret[dn])
+						ret[dn] = [];
+				}
+				_.each(_.keys(__required_specifications__[d]) , function(label){
+					_.each(_.keys(__required_specifications__[d][label]) , function(specHash){
+						if ((__required_specifications__[d][label][specHash].specification_status == __SPEC_STATUS_QUEUED_)) {
+							var spec = new mplane.Specification(__required_specifications__[d][label][specHash]);
+							// Usefull meta info
+							spec.set_metadata_value("eventTime",__required_specifications__[d][label][specHash].eventTime);
+							spec.set_metadata_value("specification_status",__required_specifications__[d][label][specHash].specification_status);
+							// Better this solution to keep the API
+							if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
+								ret[dn].push(JSON.parse(spec.to_dict()));
+							}else{
+								spec.set_when("now + 1s");
+								ret.push(JSON.parse(spec.to_dict()));
+								// Supervisor internal status
+								__required_specifications__[d][label][specHash].specification_status = __SPEC_STATUS_PROBE_TAKEN_;
+							}
+						}
+					});
+				});
+			});
+		res.status(statusCode).end(JSON.stringify(ret));
+	//}
+}
 
 // ---------------------------------------------------------------
 // Start the prompt
 // ---------------------------------------------------------------
-motd(function(){console.log("Supervisor listening on "+configuration.main.hostName+"@"+configuration.main.listenPort);});
+motd(function(){console.log("Supervisor listening on "+configuration.main.hostName+"@"+configuration.main.listenPort + " \nWEB GUI: "+configuration.main.hostName+"@"+configuration.main.webGuiPort);});
 
 start_cli();
 
@@ -797,7 +830,7 @@ function doShow(args){
                 console.log("---> NO specification queued <---");
                 return true;
             }else{
-                showSpecifications();
+                showSpecificationsToCLI();
                 return true;
             }
             break;
@@ -914,7 +947,7 @@ function deleteSpecification( specToken){
  * @param DN
  * @returns {boolean}
  */
-function showSpecifications(capabilityHash , DN){
+function showSpecificationsToCLI(capabilityHash , DN){
     if (_.keys(__registered_capabilities__).length == 0){
         console.log("---> NO DN registered YET <---");
         return true;
