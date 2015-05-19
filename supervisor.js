@@ -35,7 +35,11 @@ var mplane = require('mplane'),
 	,cli = require("cli").enable('status')
 	,serialize = require('node-serialize')
 	,events = require('events')
-	,fs = require('fs-extra');
+	,fs = require('fs-extra')
+	,basicAuth = require('basic-auth-connect');
+
+// Load users details
+var users = require("./users.js");
 
 // This is done to have a persistency in critical information
 var eventEmitter = new events.EventEmitter();
@@ -141,6 +145,17 @@ var recheck = setInterval(function(){
 // Log all requests to file
 app.use(morgan("combined" ,{ "stream":fs.createWriteStream(configuration.main.logFile)}));
 gui_app.use(morgan("combined" ,{ "stream":fs.createWriteStream(configuration.main.logFile)}));
+
+// BASIC AUTH
+gui_app.use(basicAuth(function(user, pass) {
+	var auth = false;
+	if (users[user]){
+		if (users[user].password == pass){
+			auth = true;
+		}
+	}
+	return auth;
+}));
 
 var httpsServer = https.createServer(ssl_options, app);
 var httpsGuiServer = https.createServer(ssl_options, gui_app);
@@ -251,7 +266,7 @@ app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
     // We receive a Json containing multiple capability
     var received = req.body;
     var ret = {}; // Return array
-    _.each(received , function(cap){
+    _.each(received.contents , function(cap){
         newCapability = mplane.from_dict(cap);
         // Check if we received a capability.
         if (!(newCapability instanceof mplane.Capability)){
@@ -403,13 +418,11 @@ gui_app.get(supervisor.GUI_LISTRESULTS_PATH, function(req, res){
 		if (!ret[dn])
 			ret[dn] = [];
 		var labels = _.keys(__results__[dn]);
-		//console.log(labels);
 		for (l=0 ; l<labels.length ; l++){
 			var label = labels[l];
 			var tokens = _.keys(__results__[dn][label]);
 			for (t=0 ; t<tokens.length ; t++){
 				var specHash=tokens[t];
-				//console.log(dn +" "+label+" "+specHash)
 				ret[dn].push(JSON.parse(new mplane.Result(__results__[dn][label][specHash]).to_dict()));
 			}
 		}
@@ -622,7 +635,15 @@ function showCapability(req , res){
 function showSpecifications(req , res){
 	var ret,
         statusCode = 200
-        ,DNs = [];//Here we put all the DNs for filtering specifications from
+        ,DNs = [] //Here we put all the DNs for filtering specifications from
+	// SDK 13052015
+	var envelope = {
+            "contents":[],
+            "envelope": "message",
+			"version": 1
+        };
+
+
 	// Is the GUI request or the standard mPlane API?
 	if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
 		ret = {};
@@ -637,7 +658,7 @@ function showSpecifications(req , res){
 			}else{
 				_.each(_.keys(__required_specifications__), function(curDN){
 					DNs.push(curDN);
-				})
+				});
 			}
 			DNs.forEach(function(d,index){
 				if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
@@ -664,8 +685,13 @@ function showSpecifications(req , res){
 					});
 				});
 			});
-		res.status(statusCode).end(JSON.stringify(ret));
-	//}
+			
+		if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
+			res.status(statusCode).end(JSON.stringify(ret));
+		}else{
+			envelope.contents = ret;
+			res.status(statusCode).end(JSON.stringify(envelope));
+		}
 }
 
 // ---------------------------------------------------------------
