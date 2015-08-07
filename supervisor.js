@@ -9,13 +9,13 @@
  *  2102_2015 	Keeps track of Specification checks from DN. If not seen in main.capabilityLostPeriod, they are deleted 
  *  2502_2015	Gracefull shutdown with ^C: it dumps relevant info and then shuts down
  *  0603_2015   GUI and Supervisor app listen on different ports 
+ *  2805_2015	Supervisor now respect the when in showSpecification
  *
  *
  */
 
 // PM2 route analytics
-// var pmx = require('pmx').init();
-// pmx.http();
+ var pmx = require('pmx').init();
 
 var mplane = require('mplane'),
     express = require('express'),
@@ -124,12 +124,18 @@ var __last_seen_DNs__ = {}
 // Load the reference registry
 mplane.Element.initialize_registry(configuration.registry.url);
 
+//console.log(mplane.Element.get_registry());
+
 //----------------------------------------------------
 // DATA persistency. Dump can be triggered by DBChangedEvent
 // Load data on reload if enabled
 restoreStatus();
 // On change on critical elements, dump them
-eventEmitter.on('DBChangedEvent', dumpStatus);
+var manage_db_change = function(){
+	dumpStatus(function(){if (configuration.dumpStatus.enabled) cli.debug("DB changed!")});
+}
+
+eventEmitter.on('DBChangedEvent', manage_db_change );
 
 //----------------------------------------------------
 
@@ -164,8 +170,8 @@ httpsServer.on("clientError" , function(exception, securePair){
 	cli.debug("--- clientError ---");
 });
 
-httpsServer.listen(configuration.main.listenPort);
-httpsGuiServer.listen(configuration.main.webGuiPort);
+httpsServer.listen(configuration.main.listenPort , configuration.main.hostName);
+httpsGuiServer.listen(configuration.main.webGuiPort , configuration.main.hostName);
 
 
 // Static contents
@@ -255,8 +261,6 @@ gui_app.get(supervisor.GUI_USERSETTINGS_PATH,function(req , res){
  */
 app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
 	registerDN(DN(req));
-	//__registered_DN__.push(DN(req));
-    //__registered_DN__ = _.uniq(__registered_DN__);
     
 	updateLasteSeen(DN(req));
 	
@@ -273,12 +277,14 @@ app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
             // Bad Request
             var tmp= {};
             ret[newCapability.get_label()] =  {registered:"no",reason: "mPlane Error : not a Capability/wrong format"};
+	    cli.debug("mPlane Error : not a Capability/wrong format from "+DN(req));
         }else{ // OK
             var tmp= {};
             ret[newCapability.get_label()] =  {registered:"ok"};
             // First check if already registered, then register
             var registered = capabilityAlreadyRegistered(newCapability , DN(req)),
                 newToken = registerCapability(newCapability , DN(req));
+	     cli.debug("New CAPABILITY ("+newCapability.get_label()+") from "+ DN(req));
         }
     });
     res.send(JSON.stringify(ret));
@@ -289,51 +295,8 @@ app.post(supervisor.SUPERVISOR_PATH_REGISTER_CAPABILITY, function(req, res){
  * We expect the json form:{DistinguishedName:{specification}}. This allows for send specification for a different DN from sender (es a client registering a specification for a probe)
  *
  */
-app.post(supervisor.SUPERVISOR_PATH_REGISTER_SPECIFICATION  , function(req, res){
+app.post(supervisor.SUPERVISOR_PATH_REGISTER_SPECIFICATION  , function(req, res){	
 	registerSpecification(req , res);
-
-	return;
-
-	var url = new String(req.url);
-	var dns = [];
-	var newSpecification;
-	// Is the GUI request or the standard mPlane API?
-	if (req.url.slice(0, supervisor.GUI_RUNCAPABILITY_PATH.length) == supervisor.GUI_RUNCAPABILITY_PATH){
-		var urlParams = req.url.split("DN=");
-		dns.push(urlParams[1]);
-		newSpecification = new mplane.Specification(mplane.from_dict(req.body));
-	}else{
-		dns = _.keys(req.body); // We expect to have a DN as key, so dn[0] should be the DN
-		newSpecification = mplane.from_dict(req.body[dns[0]]);
-	}
-		
-    if (!(newSpecification instanceof mplane.Specification)){
-        // Bad Request
-        res.writeHead(400, {
-            'Error': "mPlane error: not a specification/wrong format"
-        });
-        res.end();
-    }else{
-        var dn = dns[0];
-        var label = newSpecification.get_label();
-        var specToken = newSpecification.get_token();
-        if (!__required_specifications__[dn])
-            __required_specifications__[dn] = {}; // We can have multiple request for a single component
-        if (!__required_specifications__[dn][label])
-            __required_specifications__[dn][label] = {}; // We can have multiple request for a single capability of a dn
-        newSpecification.specification_status = __SPEC_STATUS_QUEUED_;
-        __required_specifications__[dn][label][specToken]= {};
-        __required_specifications__[dn][label][specToken]= newSpecification;
-        __required_specifications__[dn][label][specToken]['eventTime']= new Date(); // When we received the specification
-
-        // Receipt
-        receipt = new mplane.Receipt(newSpecification);
-        // We keep an index to easily access from the receipt token the associated specification/results
-        if (!__sent_receipts__[receipt.get_token()])
-            __sent_receipts__[receipt.get_token()] = {};
-        __sent_receipts__[receipt.get_token()] = {dn:dn , label: label, specificationToken:specToken};
-        res.send(receipt.to_dict());
-    }
 });
 
 gui_app.post( supervisor.GUI_RUNCAPABILITY_PATH, function(req, res){
@@ -388,12 +351,15 @@ gui_app.get(supervisor.GUI_LISTCAPABILITIES_PATH, function(req, res){
  * Someone is sending a result
  */
 app.post(supervisor.SUPERVISOR_PATH_REGISTER_RESULT, function(req, res){
-    var result = mplane.from_dict(req.body)
-        ,dn = DN(req)
+    var result = mplane.from_dict(req.body);
+    if (mplane.isException(result)){
+	 return res.status(403).send(result.toString());
+    }
+    var dn = DN(req)
         ,label = result.get_label()
         ,specHash = result.get_token();
     if (!(result instanceof mplane.Result)){
-        res.status(403).send("mPlane error: not a result/wrong format ");
+       return res.status(403).send("mPlane error: not a result/wrong format ");
     }
     if (!__results__[dn])
         __results__[dn] = {};
@@ -526,6 +492,10 @@ gui_app.use("", function(req , res){
 	res.redirect(configuration.gui.defaultUrl);
 });
 
+app.use(pmx.expressErrorHandler());
+gui_app.use(pmx.expressErrorHandler());
+
+
 //====================================================================================================================
 
 
@@ -573,7 +543,7 @@ function registerDN(dn){
 }
 
 function registerSpecification(req, res){
-var url = new String(req.url);
+        var url = new String(req.url);
 	var dns = [];
 	var newSpecification;
 	// Is the GUI request or the standard mPlane API?
@@ -585,8 +555,11 @@ var url = new String(req.url);
 		dns = _.keys(req.body); // We expect to have a DN as key, so dn[0] should be the DN
 		newSpecification = mplane.from_dict(req.body[dns[0]]);
 	}
-		
+
+   cli.debug("New SPECIFICATION from "+ dns[0]);
+
     if (!(newSpecification instanceof mplane.Specification)){
+	cli.debug("mPlane error: not a specification/wrong format");
         // Bad Request
         res.writeHead(400, {
             'Error': "mPlane error: not a specification/wrong format"
@@ -616,7 +589,7 @@ var url = new String(req.url);
 }
 
 function showCapability(req , res){
-	var ret = {};//Here we put all the DNs for filtering specifications from
+    var ret = {};//Here we put all the DNs for filtering specifications from
     var dn = DN(req);
 	
     for (dn in __registered_capabilities__){
@@ -642,7 +615,6 @@ function showSpecifications(req , res){
             "envelope": "message",
 			"version": 1
         };
-
 
 	// Is the GUI request or the standard mPlane API?
 	if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
@@ -676,7 +648,6 @@ function showSpecifications(req , res){
 							if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
 								ret[dn].push(JSON.parse(spec.to_dict()));
 							}else{
-								spec.set_when("now + 1s");
 								ret.push(JSON.parse(spec.to_dict()));
 								// Supervisor internal status
 								__required_specifications__[d][label][specHash].specification_status = __SPEC_STATUS_PROBE_TAKEN_;
@@ -689,6 +660,8 @@ function showSpecifications(req , res){
 		if (req.url.slice(0, supervisor.GUI_LISTPENDINGS_PATH.length) == supervisor.GUI_LISTPENDINGS_PATH){
 			res.status(statusCode).end(JSON.stringify(ret));
 		}else{
+			if (ret[0])
+				ret[0].registry = configuration.registry.url;
 			envelope.contents = ret;
 			res.status(statusCode).end(JSON.stringify(envelope));
 		}
@@ -718,7 +691,7 @@ function start_cli(){
 	
 	if (configuration.main.interactiveCli){
 		var prompt = "mPlane - "+configuration.main.hostName+"@"+configuration.main.listenPort+"#";
-    var questions = [
+         var questions = [
         {
             type: "list",
             name: "cmd",
@@ -1085,8 +1058,7 @@ function dumpStatus(callback){
 	// Simple way to be sure everything has been dumped...
 	var done = [false, false];
 	if (!configuration.dumpStatus.enabled){
-		cli.debug("DUMP status DISABLED");
-		return;
+		return callback();
 	}else{
 		cli.debug("DUMPING status to "+configuration.dumpStatus.dir);
 		fs.outputFile(configuration.dumpStatus.dir + '/__registered_capabilities__.dump', JSON.stringify(__registered_capabilities__), function (err) {
@@ -1171,11 +1143,11 @@ function removeDeadCapabilities(){
  * @constructor
  */
 function DN(req){
-	if (!req)
+    if (!req)
         return null;
     var details = req.connection.getPeerCertificate() || null;
     if (!details || !details.subjectaltname){
-    	cli.debug("Error reading  DN");
+    	cli.debug("Error reading  DN "+details);
     	return null;
     }     
    // Extract the DNS altName

@@ -3,10 +3,10 @@
         "logFile":"/var/log/mplane/supervisor.log",
         "listenPort":2427,
         "webGuiPort":8080,
-        "hostName":"Supervisor-1.TI.mplane.org",
+        "hostName":"supervisor.ict-mplane.eu",
         "interactiveCli":false,
-		"keep_claimed_results" : true,
-    	"capabilityLostPeriod": 10000
+	"keep_claimed_results" : true,
+    	"capabilityLostPeriod": 100000
     },
 	"reasoner":{
 		"url":"127.0.0.1",
@@ -18,21 +18,23 @@
     	,"staticContentDir":"/www"	
     },
     "ssl":{
-        "key": "../ca/certs/Supervisor-TI-plaintext.key"
-        ,"cert": "../ca/certs/Supervisor-TI.crt"
-        ,"ca": [ "../ca/root-ca/root-ca.crt" ]
-        ,"hostName":"Supervisor-1.TI.mplane.org."
+	"key": "../certs/supervisors/Supervisor-plaintext.key"
+        ,"cert": "../certs/supervisors/Supervisor.crt"
+        ,"ca": [ "../certs/ca/root-ca.crt" ]
+        ,"hostName":"supervisor.mplane.org."
         ,"requestCert" : true
     },
     "dumpStatus":{
-    	"enabled" : true,
+    	"enabled" : false,
     	"file": ".dump/supervisor_dump.json",
     	"dir": ".dump",
     	"interval":10000,
     	"restoreOnStartup":true
     },
     "registry":{
-		"__url": "https://raw.githubusercontent.com/fp7mplane/protocol-ri/master/mplane/registry.json",
-		"url": "file:///Users/invernizzi/Documents/mplane/registry.json"
+		"_url": "https://raw.githubusercontent.com/fp7mplane/components/master/tstat/tstat-registry.json",
+		"url": "http://mplane.ngnet.it/registry.json",
+		"__url": "http://ict-mplane.eu/registry/demo",
+		"__url": "file://../registry.json"
     }
 }
