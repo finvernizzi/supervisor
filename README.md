@@ -33,44 +33,44 @@ In order to change the configuration edit the supervisor.json file.
 This an example of working config
 
 ```json
-}
-```
 
-"main":{
-        "logFile":"/var/log/mplane/supervisor.log",
-        "listenPort":2427,
-        "webGuiPort":8080,
-        "hostName":"supervisor.ict-mplane.eu",
-        "interactiveCli":false,
-        "keep_claimed_results" : true,
-        "capabilityLostPeriod": 100000
+main:{
+        logFile:/var/log/mplane/supervisor.log,
+        listenPort:2427,
+        webGuiPort:8080,
+        hostName:supervisor.ict-mplane.eu,
+        interactiveCli:false,
+        keep_claimed_results : true,
+        capabilityLostPeriod: 100000
     },
-     "reasoner":{
-             "url":"127.0.0.1",
-             "port":"8081",
-             "path":"/network_status.json"
+     reasoner:{
+             url:127.0.0.1,
+             port:8081,
+             path:/network_status.json
      },
-    "gui":{
-        "defaultUrl":"/gui/static/login.html"
-        ,"staticContentDir":"/www"
+    gui:{
+        defaultUrl:/gui/static/login.html
+        ,staticContentDir:/www
     },
-    "ssl":{
-        "key": "../certs/supervisors/Supervisor-plaintext.key"
-        ,"cert": "../certs/supervisors/Supervisor.crt"
-        ,"ca": [ "../certs/ca/root-ca.crt" ]
-        ,"requestCert" : true
+    ssl:{
+        key: ../certs/supervisors/Supervisor-plaintext.key
+        ,cert: ../certs/supervisors/Supervisor.crt
+        ,ca: [ ../certs/ca/root-ca.crt ]
+        ,requestCert : true
     },
-    "dumpStatus":{
-        "enabled" : false,
-        "file": ".dump/supervisor_dump.json",
-        "dir": ".dump",
-        "interval":10000,
-        "restoreOnStartup":true
+    dumpStatus:{
+        enabled : false,
+        file: .dump/supervisor_dump.json,
+        dir: .dump,
+        interval:10000,
+        restoreOnStartup:true
     },
-    "registry":{
-                "url": "http://ict-mplane.eu/registry/demo"
+    registry:{
+                url: http://ict-mplane.eu/registry/demo
     }
 }
+
+```
 
 The configuration is a plain JSON file conataining 4 main sections described below.
 ###main
