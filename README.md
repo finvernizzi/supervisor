@@ -92,7 +92,7 @@ Where to find ssl certificates and if they should be honoured or not.
 If `enabled` the supervisor will periodically dump its internal db to file in order to reload it in case of restart (`restoreOnStartup`). `interval` set the period of dumps.
 
 ###registry
-Where the supervisor should load its regitry. It can by any valid url, including local files.
+Where the supervisor should load its regitry. It can be any valid url, including local files.
 
 #Run
 To start the supervisor simply digit
